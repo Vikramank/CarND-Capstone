@@ -16,7 +16,7 @@ You can subscribe to any other message that you find important or refer to the d
 of messages subscribed to by the reference implementation of this node.
 
 One thing to keep in mind while building this node and the `twist_controller` class is the status
-of `dbw_enabled`. While in the simulator, its enabled all the time, in the real car, that will
+of `dbw_status`. While in the simulator, its enabled all the time, in the real car, that will
 not be the case. This may cause your PID controller to accumulate error because the car could
 temporarily be driven by a human instead of your controller.
 
@@ -35,16 +35,22 @@ class DBWNode(object):
     def __init__(self):
         rospy.init_node('dbw_node')
 
-        vehicle_mass = rospy.get_param('~vehicle_mass', 1736.35)
+        vehicle_mass = rospy.get_param('~vehicle_mass', 1736.35) #necessary
         fuel_capacity = rospy.get_param('~fuel_capacity', 13.5)
         brake_deadband = rospy.get_param('~brake_deadband', .1)
         decel_limit = rospy.get_param('~decel_limit', -5)
         accel_limit = rospy.get_param('~accel_limit', 1.)
-        wheel_radius = rospy.get_param('~wheel_radius', 0.2413)
+        wheel_radius = rospy.get_param('~wheel_radius', 0.2413) #necessary
+
+        #the following parameters are required by yaw controller to provide steering commands
+        #plus the minimum speed
         wheel_base = rospy.get_param('~wheel_base', 2.8498)
         steer_ratio = rospy.get_param('~steer_ratio', 14.8)
-        max_lat_accel = rospy.get_param('~max_lat_accel', 3.)
+        max_lat_accel = rospy.get_param('~max_lat_accel', 3.0)
         max_steer_angle = rospy.get_param('~max_steer_angle', 8.)
+        self.min_speed= 5.0
+
+
 
         self.steer_pub = rospy.Publisher('/vehicle/steering_cmd',
                                          SteeringCmd, queue_size=1)
@@ -54,14 +60,33 @@ class DBWNode(object):
                                          BrakeCmd, queue_size=1)
 
         # TODO: Create `Controller` object
-        # self.controller = Controller(<Arguments you wish to provide>)
+        self.controller = Controller(wheel_base,wheel_radius,accel_limit)
+
+
+
 
         # TODO: Subscribe to all the topics you need to
+        rospy.Subscriber('/vehicle/dbw_status',Bool,dbw_cb)
+        rospy.Subscriber('/current_velocity',TwistStamped,velocity_cb)
+        rospy.Subscriber('/twist_cmd',TwistStamped,twist_cb)
+
+
+        self.dbw_status=True
+        self.throttle=1.0
+        self.brake=0.0
+        self.steering=0.0
+        self.current_velocity=None
+        self.linear_veloctiy=None
+        self.current_twist_cmd=None
+        self.angular_velocity=None #required by yaw_controller
+
+
 
         self.loop()
 
     def loop(self):
         rate = rospy.Rate(50) # 50Hz
+        duration = 1.0
         while not rospy.is_shutdown():
             # TODO: Get predicted throttle, brake, and steering using `twist_controller`
             # You should only publish the control commands if dbw is enabled
@@ -72,7 +97,25 @@ class DBWNode(object):
             #                                                     <any other argument you need>)
             # if <dbw is enabled>:
             #   self.publish(throttle, brake, steer)
+
+            #self.throttle,self.brake,self.steer=self.controller.control(self.current_twist_cmd,
+            #                                                            self.current_velocity,
+            #                                                               duration)
+
+            if self.dbw_status:
+                self.publish(self.throttle,self.brake,self.steer)
+
             rate.sleep()
+    def dbw_cb(self, msg):
+        self.dbw_status=msg
+
+    def velocity_cb(self,msg):
+        self.current_velocity=msg.twist.linear.x
+
+    def twist_cb(self, twist_cmd):
+        self.current_twist_cmd=twist_cmd
+        self.angular_velocity=twist_cmd.twist.angular.z
+        self.linear_veloctiy=twist_cmd.twist.linear.x
 
     def publish(self, throttle, brake, steer):
         tcmd = ThrottleCmd()
