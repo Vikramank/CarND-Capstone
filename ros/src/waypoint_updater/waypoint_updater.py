@@ -4,6 +4,7 @@ import rospy
 from geometry_msgs.msg import PoseStamped
 from styx_msgs.msg import Lane, Waypoint
 from scipy.spatial import KDTree
+from std_msgs.msg import Int32
 import math
 import numpy as np
 
@@ -39,9 +40,7 @@ class WaypointUpdater(object):
         self.final_waypoints_pub = rospy.Publisher('final_waypoints', Lane, queue_size=1)
 
         # TODO: Add other member variables you need below
-        waypoints
-        waypoint
-        velocity
+        self.waypoints=None
         self.pose=None
         self.base_waypoints=None
         self.waypoints_2d=None
@@ -90,7 +89,7 @@ class WaypointUpdater(object):
     def set_waypoint_velocity(self, waypoints, waypoint, velocity):
         waypoints[waypoint].twist.twist.linear.x = velocity
 
-   def get_closest_waypoint_index(self.base_waypoints, self.pose):
+   def get_closest_waypoint_index(self):
        current_pose=np.asarray([self.pose.pose.position.x,self.pose.pose.position.y])
        _,closest_index=self.waypoint_tree.query(current_pose)
        closest_coordinate=np.asarray(self.waypoints_2d[closest_index])
