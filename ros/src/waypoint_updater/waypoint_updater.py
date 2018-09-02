@@ -54,13 +54,13 @@ class WaypointUpdater(object):
         self.pose=msg #current position of the car
 
     def waypoints_cb(self, waypoints):
-        if not self.base_lane:
-              #self.waypoints=waypoints #collect the base_waypoints of the system
-              self.base_lane=waypoints
-        if not self.waypoints_2d:
-            self.waypoints_2d = [[waypoint.pose.pose.position.x, waypoint.pose.pose.position.y] for waypoint in waypoints.waypoints]
-             #if (not self.waypoint_tree) and (not self.waypoints_2d) :
-            self.waypoint_tree=KDTree(self.waypoints_2d)
+            if not self.base_lane:
+                  #self.waypoints=waypoints #collect the base_waypoints of the system
+                  self.base_lane=waypoints
+            if not self.waypoints_2d:
+                self.waypoints_2d = [[waypoint.pose.pose.position.x, waypoint.pose.pose.position.y] for waypoint in waypoints.waypoints]
+            if (not self.waypoint_tree) and (not self.waypoints_2d) :
+                  self.waypoint_tree=KDTree(self.waypoints_2d)
     def traffic_cb(self, msg):
         # TODO: Callback for /traffic_waypoint message. Implement
         self.stopline_wp_idx = msg.data
@@ -69,25 +69,21 @@ class WaypointUpdater(object):
         # TODO: Callback for /obstacle_waypoint message. We will implement it later
         pass
 
-    def get_closest_waypoint_idx(self):
-        x = self.pose.pose.position.x
-        y = self.pose.pose.position.y
-        closest_idx = self.waypoint_tree.query([x, y], 1)[1]
+    def get_closest_waypoint_index(self):
+        current_pose=np.asarray([self.pose.pose.position.x,self.pose.pose.position.y])
+        _,closest_index=self.waypoint_tree.query(current_pose)
+        closest_coordinate=np.asarray(self.waypoints_2d[closest_index])
+        previous_coordinate=np.asarray(self.waypoints_2d[closest_index-1])
+        #check whether this waypoint is ahead or behind the car
+        a_vector=closest_coordinate-previous_coordinate
+        b_vector=current_pose-closest_coordinate
+        dot_product=np.dot(a_vector,b_vector)
+        bool=dot_product>0
 
-        # check if closest is ahead or behind vehicle
-        closest_coord = self.waypoints_2d[closest_idx]
-        prev_coord = self.waypoints_2d[closest_idx-1]
+        if bool:
+             closest_index = (closest_index + 1) % len(self.waypoints_2d)
 
-        # equation for hyperplane through closest_coords
-        cl_vect = np.array(closest_coord)
-        prev_vect = np.array(prev_coord)
-        pos_vect = np.array([x, y])
-
-        val = np.dot(cl_vect-prev_vect, pos_vect-cl_vect)
-
-        if val > 0:
-            closest_idx = (closest_idx + 1) % len(self.waypoints_2d)
-        return closest_idx
+        return closest_index        
 
     def publish_waypoints(self): # , closest_idx):
         final_lane = self.generate_lane()
@@ -135,3 +131,9 @@ class WaypointUpdater(object):
             dist += dl(waypoints[wp1].pose.pose.position, waypoints[i].pose.pose.position)
             wp1 = i
         return dist
+
+if __name__ == '__main__':
+    try:
+        WaypointUpdater()
+    except rospy.ROSInterruptException:
+        rospy.logerr('Could not start waypoint updater node')
