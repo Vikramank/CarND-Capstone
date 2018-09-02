@@ -59,8 +59,7 @@ class WaypointUpdater(object):
                   self.base_lane=waypoints
             if not self.waypoints_2d:
                 self.waypoints_2d = [[waypoint.pose.pose.position.x, waypoint.pose.pose.position.y] for waypoint in waypoints.waypoints]
-            if (not self.waypoint_tree) and (not self.waypoints_2d) :
-                  self.waypoint_tree=KDTree(self.waypoints_2d)
+                self.waypoint_tree=KDTree(self.waypoints_2d)
     def traffic_cb(self, msg):
         # TODO: Callback for /traffic_waypoint message. Implement
         self.stopline_wp_idx = msg.data
