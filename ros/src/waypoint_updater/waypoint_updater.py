@@ -42,6 +42,8 @@ class WaypointUpdater(object):
         # TODO: Add other member variables you need below
         self.waypoints=None
         self.pose=None
+        self.base_lane = None
+        self.stopline_wp_idx = -1
         self.base_waypoints=None
         self.waypoints_2d=None
         self.waypoint_tree=None
@@ -66,7 +68,8 @@ class WaypointUpdater(object):
 
     def waypoints_cb(self, waypoints):
         if not self.waypoints:
-              self.waypoints=waypoints #collect the base_waypoints of the system
+              #self.waypoints=waypoints #collect the base_waypoints of the system
+              self.base_lane=waypoints
         if not self.waypoints_2d:
             self.waypoints_2d = [[waypoint.pose.pose.position.x, waypoint.pose.pose.position.y] for waypoint in waypoints.waypoints]
         if (not self.waypoint_tree) and (not self.waypoints_2d) :
@@ -77,6 +80,7 @@ class WaypointUpdater(object):
 
     def traffic_cb(self, msg):
         # TODO: Callback for /traffic_waypoint message. Implement
+        self.stopline_wp_idx=msg.data
         pass
 
     def obstacle_cb(self, msg):
@@ -113,12 +117,42 @@ class WaypointUpdater(object):
             dist += dl(waypoints[wp1].pose.pose.position, waypoints[i].pose.pose.position)
             wp1 = i
         return dist
-    def publish_waypoints(self, closest_index):
-        lane=Lane()
-        lane.header=self.waypoints.header
-        lane.waypoints=self.waypoints[closest_index:closest_index+LOOKAHEAD_WPS]
-        self.final_waypoints_pub(lane)
+    def publish_waypoints(self):
+        final_lane = self.generate_lane()
+        self.final_waypoints_pub.publish(final_lane)
 
+    def generate_lane(self):
+        lane = Lane()
+
+        closest_idx = self.get_closest_waypoint_idx()
+        farthest_idx = closest_idx + LOOKAHEAD_WPS
+        base_waypoints = self.base_lane.waypoints[closest_idx:farthest_idx]
+
+        if self.stopline_wp_idx == -1 or (self.stopline_wp_idx >= farthest_idx):
+            lane.waypoints = base_waypoints
+        else:
+            lane.waypoints = self.decelerate_waypoints(base_waypoints, closest_idx)
+
+        return lane
+
+    def decelerate_waypoints(self, waypoints, closest_idx):
+        temp = []
+        for i, wp in enumerate(waypoints):
+            p = Waypoint()
+            p.pose = wp.pose
+
+            stop_idx = max(self.stopline_wp_idx - closest_idx - 2, 0) # Two waypoints back from line so front of car stops at line
+            dist = self.distance(waypoints, i, stop_idx)
+            vel = math.sqrt(2 * MAX_DECEL * dist) #velocity function to decelerate towards the stop waypoint
+            #vel=0.02*MAX_DECEL*dist
+
+            if vel < 1. :
+                vel = 0.
+
+            p.twist.twist.linear.x = min(vel, wp.twist.twist.linear.x)
+            temp.append(p)
+
+        return temp
 
 if __name__ == '__main__':
     try:
