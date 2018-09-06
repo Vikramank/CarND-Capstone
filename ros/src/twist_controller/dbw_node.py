@@ -1,172 +1,138 @@
 #!/usr/bin/env python
 
 import rospy
-from std_msgs.msg import Bool
-from dbw_mkz_msgs.msg import ThrottleCmd, SteeringCmd, BrakeCmd, SteeringReport
-from geometry_msgs.msg import TwistStamped
+from geometry_msgs.msg import PoseStamped
+from styx_msgs.msg import Lane, Waypoint
+from scipy.spatial import KDTree
+from std_msgs.msg import Int32
 import math
-
-from twist_controller import Controller
-
+import numpy as np
 
 '''
-You can build this node only after you have built (or partially built) the `waypoint_updater` node.
-You will subscribe to `/twist_cmd` message which provides the proposed linear and angular velocities.
-You can subscribe to any other message that you find important or refer to the document for list
-of messages subscribed to by the reference implementation of this node.
-One thing to keep in mind while building this node and the `twist_controller` class is the status
-of `dbw_enabled`. While in the simulator, its enabled all the time, in the real car, that will
-not be the case. This may cause your PID controller to accumulate error because the car could
-temporarily be driven by a human instead of your controller.
-We have provided two launch files with this node. Vehicle specific values (like vehicle_mass,
-wheel_base) etc should not be altered in these files.
-We have also provided some reference implementations for PID controller and other utility classes.
-You are free to use them or build your own.
-Once you have the proposed throttle, brake, and steer values, publish it on the various publishers
-that we have created in the `__init__` function.
-'''
-class Car_Param(object):
-      def __init__(self):
-          self.vehicle_mass=None
-          self.fuel_capacity=None
-          self.brake_deadband=None
-          self.decel_limit= None
-          self.accel_limit=None
-          self.wheel_radius=None
-          self.wheel_base=None
-          self.steer_ratio=None
-          self.max_lat_accel=None
-          self.max_steer_angle=None
-          self.min_speed= None
+This node will publish waypoints from the car's current position to some `x` distance ahead.
 
-class DBWNode(object):
+As mentioned in the doc, you should ideally first implement a version which does not care
+about traffic lights or obstacles.
+
+Once you have created dbw_node, you will update this node to use the status of traffic lights too.
+
+Please note that our simulator also provides the exact location of traffic lights and their
+current status in `/vehicle/traffic_lights` message. You can use this message to build this node
+as well as to verify your TL classifier.
+
+TODO (for Yousuf and Aaron): Stopline location for each traffic light.
+'''
+
+LOOKAHEAD_WPS = 200 # Number of waypoints we will publish. You can change this number
+class WaypointUpdater(object):
     def __init__(self):
-        rospy.init_node('dbw_node')
-        cp = Car_Param()
+        rospy.init_node('waypoint_updater')
+        rospy.Subscriber('/current_pose', PoseStamped, self.pose_cb)
+        rospy.Subscriber('/base_waypoints', Lane, self.waypoints_cb)
+        rospy.Subscriber('/traffic_waypoint',Int32,self.traffic_cb )
+        rospy.Subscriber('/obstacle_waypoint',Lane,self.obstacle_cb )
+        self.final_waypoints_pub = rospy.Publisher('final_waypoints', Lane, queue_size=1)
 
-        cp.vehicle_mass = rospy.get_param('~vehicle_mass', 1736.35)
-        cp.fuel_capacity = rospy.get_param('~fuel_capacity', 13.5)
-        cp.brake_deadband = rospy.get_param('~brake_deadband', .1)
-        cp.decel_limit = rospy.get_param('~decel_limit', -5)
-        cp.accel_limit = rospy.get_param('~accel_limit', 1.)
-        cp.wheel_radius = rospy.get_param('~wheel_radius', 0.2413)
-        cp.wheel_base = rospy.get_param('~wheel_base', 2.8498)
-        cp.steer_ratio = rospy.get_param('~steer_ratio', 14.8)
-        cp.max_lat_accel = rospy.get_param('~max_lat_accel', 3.)
-        cp.max_steer_angle = rospy.get_param('~max_steer_angle', 8.)
-        cp.min_speed = 5
-
-
-        self.steer_pub = rospy.Publisher('/vehicle/steering_cmd',
-                                         SteeringCmd, queue_size=1)
-        self.throttle_pub = rospy.Publisher('/vehicle/throttle_cmd',
-                                            ThrottleCmd, queue_size=1)
-        self.brake_pub = rospy.Publisher('/vehicle/brake_cmd',
-                                         BrakeCmd, queue_size=1)
-
-        self.sampling_rate = 20.0
-        # TODO: Create `TwistController` object
-        #self.controller = Controller(sampling_rate = self.sampling_rate, Car_Param = cp)
-        self.controller = Controller(Car_Param = cp)
-
-        # TODO: Subscribe to all the topics you need to 
-        self.dbw_status=True
-        self.throttle=0.0
-        self.brake=0.0
-        self.steering=0.0
-        self.current_velocity=None
-        self.linear_veloctiy=None
-        self.current_twist_cmd=None
-        self.angular_velocity=None #required by yaw_controller
-        self.duration = 1.0
-
-        rospy.Subscriber('/twist_cmd',TwistStamped, self.twist_cmd_cb, queue_size=5)
-        rospy.Subscriber('/current_velocity',TwistStamped, self.current_velocity_cb, queue_size=5)
-        rospy.Subscriber('/vehicle/dbw_enabled',Bool, self.dbw_enabled_cb, queue_size=1)
-
-        self.reset_flag =True
-        
-        self.previous_timestamp = rospy.get_time()
+        #self.waypoints= None
+        self.pose= None
+        self.base_lane = None
+        self.stopline_wp_idx = -1
+        #self.base_waypoints=None
+        self.waypoints_2d = None
+        self.waypoint_tree =None
 
         self.loop()
-    
-    def dbw_enabled_cb(self,dbw_enabled):
-        try:
-           self.dbw_enabled=bool(dbw_enabled.data)
-        except Exception:
-           self.dbw_enabled = dbw_enabled
-
-    def current_velocity_cb(self,current_velocity):
-        self.current_velocity = current_velocity
-
-    def twist_cmd_cb(self, twist_cmd):
-        self.current_twist_cmd = twist_cmd
-
 
     def loop(self):
-            
-           rate = rospy.Rate(self.sampling_rate) # 50Hz
-           while not rospy.is_shutdown():
-            # TODO: Get predicted throttle, brake, and steering using `twist_controller`
-            # You should only publish the control commands if dbw is enabled
-            current_timestamp = rospy.get_time()
-            #duration = current_timestamp - self.previous_timestamp
-            duration = 1.0 # Greg - Not sure if should do this to keep car from slowing down to 0 before stoplight
-            self.previous_timestamp = current_timestamp
-            if self.dbw_status and self.current_velocity is not None and self.current_twist_cmd is not None:
-               if self.reset_flag:
-                  #self.controller.reset()
-                  self.reset_flag =False
-     
-               throttle, brake, steering = self.controller.control(twist_cmd=self.current_twist_cmd, current_velocity=self.current_velocity,duration = duration)
-               
-            # if <dbw is enabled>:
-               self.publish(throttle, brake, steering)
-            else:
-               self.reset_flag = True
-            
+        rate = rospy.Rate(50)
+        while not rospy.is_shutdown():
+            if self.pose and self.base_lane:
+                self.publish_waypoints()
             rate.sleep()
-            '''
-            rate = rospy.Rate(50) # 50Hz
 
-            while not rospy.is_shutdown():
-                # TODO: Get predicted throttle, brake, and steering using `twist_controller`
-                # You should only publish the control commands if dbw is enabled
-                # throttle, brake, steering = self.controller.control(<proposed linear velocity>,
-                #                                                     <proposed angular velocity>,
-                #                                                     <current linear velocity>,
-                #                                                     <dbw status>,
-                #                                                     <any other argument you need>)
-                # if <dbw is enabled>:
-                #   self.publish(throttle, brake, steer)
-                duration=1
+    def pose_cb(self, msg):
+        self.pose=msg #current position of the car
 
-                self.throttle,self.brake,self.steering = self.controller.control(twist_cmd=self.current_twist_cmd, current_velocity=self.current_velocity,duration = duration)
+    def waypoints_cb(self, waypoints):
+            if not self.base_lane:
+                  #self.waypoints=waypoints #collect the base_waypoints of the system
+                  self.base_lane=waypoints
+            if not self.waypoints_2d:
+               self.waypoints_2d = [[waypoint.pose.pose.position.x, waypoint.pose.pose.position.y] for waypoint in waypoints.waypoints]
+               self.waypoint_tree=KDTree(self.waypoints_2d)
+    def traffic_cb(self, msg):
+        # TODO: Callback for /traffic_waypoint message. Implement
+        self.stopline_wp_idx = msg.data
 
-                if self.dbw_status:
-                    self.publish(self.throttle,self.brake,self.steering)
+    def obstacle_cb(self, msg):
+        # TODO: Callback for /obstacle_waypoint message. We will implement it later
+        pass
 
-                rate.sleep()
-                '''
+    def get_closest_waypoint_index(self):
+        current_pose=np.asarray([self.pose.pose.position.x,self.pose.pose.position.y])
+        _,closest_index=self.waypoint_tree.query(current_pose)
+        closest_coordinate=np.asarray(self.waypoints_2d[closest_index])
+        previous_coordinate=np.asarray(self.waypoints_2d[closest_index-1])
+        #check whether this waypoint is ahead or behind the car
+        a_vector=closest_coordinate-previous_coordinate
+        b_vector=current_pose-closest_coordinate
+        dot_product=np.dot(a_vector,b_vector)
+        bool=dot_product>0
 
-    def publish(self, throttle, brake, steer):
-        tcmd = ThrottleCmd()
-        tcmd.enable = True
-        tcmd.pedal_cmd_type = ThrottleCmd.CMD_PERCENT
-        tcmd.pedal_cmd = throttle
-        self.throttle_pub.publish(tcmd)
+        if bool:
+             closest_index = (closest_index + 1) % len(self.waypoints_2d)
 
-        scmd = SteeringCmd()
-        scmd.enable = True
-        scmd.steering_wheel_angle_cmd = steer
-        self.steer_pub.publish(scmd)
+        return closest_index
 
-        bcmd = BrakeCmd()
-        bcmd.enable = True
-        bcmd.pedal_cmd_type = BrakeCmd.CMD_TORQUE
-        bcmd.pedal_cmd = brake
-        self.brake_pub.publish(bcmd)
+    def publish_waypoints(self): # , closest_idx):
+        final_lane = self.generate_lane()
+        self.final_waypoints_pub.publish(final_lane)
+    def generate_lane(self):
+        lane = Lane()
 
+        closest_idx = self.get_closest_waypoint_idx()
+        farthest_idx = closest_idx + LOOKAHEAD_WPS
+        base_waypoints = self.base_lane.waypoints[closest_idx:farthest_idx]
+
+        if self.stopline_wp_idx == -1 or (self.stopline_wp_idx >= farthest_idx):
+            lane.waypoints = base_waypoints
+        else:
+            lane.waypoints = self.decelerate_waypoints(base_waypoints, closest_idx)
+
+        return lane
+
+    def decelerate_waypoints(self, waypoints, closest_idx):
+        temp = []
+        for i, wp in enumerate(waypoints):
+            p = Waypoint()
+            p.pose = wp.pose
+
+            stop_idx = max(self.stopline_wp_idx - closest_idx - 2, 0) # Two waypoints back from line so front of car stops at line
+            dist = self.distance(waypoints, i, stop_idx)
+            vel = math.sqrt(2 * MAX_DECEL * dist)
+            if vel < 1. :
+                vel = 0.
+
+            p.twist.twist.linear.x = min(vel, wp.twist.twist.linear.x)
+            temp.append(p)
+
+        return temp
+    def get_waypoint_velocity(self, waypoint):
+        return waypoint.twist.twist.linear.x
+
+    def set_waypoint_velocity(self, waypoints, waypoint, velocity):
+        waypoints[waypoint].twist.twist.linear.x = velocity
+
+    def distance(self, waypoints, wp1, wp2):
+        dist = 0
+        dl = lambda a, b: math.sqrt((a.x-b.x)**2 + (a.y-b.y)**2  + (a.z-b.z)**2)
+        for i in range(wp1, wp2+1):
+            dist += dl(waypoints[wp1].pose.pose.position, waypoints[i].pose.pose.position)
+            wp1 = i
+        return dist
 
 if __name__ == '__main__':
-    DBWNode()
+    try:
+        WaypointUpdater()
+    except rospy.ROSInterruptException:
+        rospy.logerr('Could not start waypoint updater node.')
