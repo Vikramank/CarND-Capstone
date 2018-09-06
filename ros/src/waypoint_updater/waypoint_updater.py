@@ -10,12 +10,16 @@ import numpy as np
 
 '''
 This node will publish waypoints from the car's current position to some `x` distance ahead.
+
 As mentioned in the doc, you should ideally first implement a version which does not care
 about traffic lights or obstacles.
+
 Once you have created dbw_node, you will update this node to use the status of traffic lights too.
+
 Please note that our simulator also provides the exact location of traffic lights and their
 current status in `/vehicle/traffic_lights` message. You can use this message to build this node
 as well as to verify your TL classifier.
+
 TODO (for Yousuf and Aaron): Stopline location for each traffic light.
 '''
 
@@ -54,8 +58,8 @@ class WaypointUpdater(object):
                   #self.waypoints=waypoints #collect the base_waypoints of the system
                   self.base_lane=waypoints
             if not self.waypoints_2d:
-                self.waypoints_2d = [[waypoint.pose.pose.position.x, waypoint.pose.pose.position.y] for waypoint in waypoints.waypoints]
-                self.waypoint_tree=KDTree(self.waypoints_2d)
+               self.waypoints_2d = [[waypoint.pose.pose.position.x, waypoint.pose.pose.position.y] for waypoint in waypoints.waypoints]
+               self.waypoint_tree=KDTree(self.waypoints_2d)
     def traffic_cb(self, msg):
         # TODO: Callback for /traffic_waypoint message. Implement
         self.stopline_wp_idx = msg.data
@@ -64,7 +68,7 @@ class WaypointUpdater(object):
         # TODO: Callback for /obstacle_waypoint message. We will implement it later
         pass
 
-    def get_closest_waypoint_idx(self):
+    def get_closest_waypoint_index(self):
         current_pose=np.asarray([self.pose.pose.position.x,self.pose.pose.position.y])
         _,closest_index=self.waypoint_tree.query(current_pose)
         closest_coordinate=np.asarray(self.waypoints_2d[closest_index])
@@ -78,7 +82,7 @@ class WaypointUpdater(object):
         if bool:
              closest_index = (closest_index + 1) % len(self.waypoints_2d)
 
-        return closest_index        
+        return closest_index
 
     def publish_waypoints(self): # , closest_idx):
         final_lane = self.generate_lane()
@@ -131,4 +135,4 @@ if __name__ == '__main__':
     try:
         WaypointUpdater()
     except rospy.ROSInterruptException:
-        rospy.logerr('Could not start waypoint updater node')
+        rospy.logerr('Could not start waypoint updater node.')
