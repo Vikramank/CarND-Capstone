@@ -10,16 +10,12 @@ import numpy as np
 
 '''
 This node will publish waypoints from the car's current position to some `x` distance ahead.
-
 As mentioned in the doc, you should ideally first implement a version which does not care
 about traffic lights or obstacles.
-
 Once you have created dbw_node, you will update this node to use the status of traffic lights too.
-
 Please note that our simulator also provides the exact location of traffic lights and their
 current status in `/vehicle/traffic_lights` message. You can use this message to build this node
 as well as to verify your TL classifier.
-
 TODO (for Yousuf and Aaron): Stopline location for each traffic light.
 '''
 
@@ -68,7 +64,7 @@ class WaypointUpdater(object):
         # TODO: Callback for /obstacle_waypoint message. We will implement it later
         pass
 
-    def get_closest_waypoint_index(self):
+    def get_closest_waypoint_idx(self):
         current_pose=np.asarray([self.pose.pose.position.x,self.pose.pose.position.y])
         _,closest_index=self.waypoint_tree.query(current_pose)
         closest_coordinate=np.asarray(self.waypoints_2d[closest_index])
