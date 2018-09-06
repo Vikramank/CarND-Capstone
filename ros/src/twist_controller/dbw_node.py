@@ -64,32 +64,26 @@ class DBWNode(object):
         self.brake_pub = rospy.Publisher('/vehicle/brake_cmd',
                                          BrakeCmd, queue_size=1)
 
-        self.sampling_rate = 50.0
+        self.sampling_rate = 20.0
         # TODO: Create `TwistController` object
         #self.controller = Controller(sampling_rate = self.sampling_rate, Car_Param = cp)
         self.controller = Controller(Car_Param = cp)
 
-        # TODO: Subscribe to all the topics you need to
-        self.dbw_status=True
-        self.throttle=0.0
-        self.brake=0.0
-        self.steering=0.0
+        # TODO: Subscribe to all the topics you need to 
+        self.dbw_enabled=True
         self.current_velocity=None
-        self.linear_veloctiy=None
         self.current_twist_cmd=None
-        self.angular_velocity=None #required by yaw_controller
-        self.duration = 1.0
 
         rospy.Subscriber('/twist_cmd',TwistStamped, self.twist_cmd_cb, queue_size=5)
         rospy.Subscriber('/current_velocity',TwistStamped, self.current_velocity_cb, queue_size=5)
         rospy.Subscriber('/vehicle/dbw_enabled',Bool, self.dbw_enabled_cb, queue_size=1)
 
         self.reset_flag =True
-
+        
         self.previous_timestamp = rospy.get_time()
 
         self.loop()
-
+    
     def dbw_enabled_cb(self,dbw_enabled):
         try:
            self.dbw_enabled=bool(dbw_enabled.data)
@@ -104,50 +98,27 @@ class DBWNode(object):
 
 
     def loop(self):
-
-           rate = rospy.Rate(self.sampling_rate) # 50Hz
-           while not rospy.is_shutdown():
+        rate = rospy.Rate(self.sampling_rate) # 50Hz
+        while not rospy.is_shutdown():
             # TODO: Get predicted throttle, brake, and steering using `twist_controller`
             # You should only publish the control commands if dbw is enabled
             current_timestamp = rospy.get_time()
             #duration = current_timestamp - self.previous_timestamp
             duration = 1.0 # Greg - Not sure if should do this to keep car from slowing down to 0 before stoplight
             self.previous_timestamp = current_timestamp
-            if self.dbw_status and self.current_velocity is not None and self.current_twist_cmd is not None:
+            if self.dbw_enabled and self.current_velocity is not None and self.current_twist_cmd is not None:
                if self.reset_flag:
-                  #self.controller.reset()
+                  self.controller.reset()
                   self.reset_flag =False
-
+     
                throttle, brake, steering = self.controller.control(twist_cmd=self.current_twist_cmd, current_velocity=self.current_velocity,duration = duration)
-
+               
             # if <dbw is enabled>:
                self.publish(throttle, brake, steering)
             else:
                self.reset_flag = True
-
+            
             rate.sleep()
-            '''
-            rate = rospy.Rate(50) # 50Hz
-
-            while not rospy.is_shutdown():
-                # TODO: Get predicted throttle, brake, and steering using `twist_controller`
-                # You should only publish the control commands if dbw is enabled
-                # throttle, brake, steering = self.controller.control(<proposed linear velocity>,
-                #                                                     <proposed angular velocity>,
-                #                                                     <current linear velocity>,
-                #                                                     <dbw status>,
-                #                                                     <any other argument you need>)
-                # if <dbw is enabled>:
-                #   self.publish(throttle, brake, steer)
-                duration=1
-
-                self.throttle,self.brake,self.steering = self.controller.control(twist_cmd=self.current_twist_cmd, current_velocity=self.current_velocity,duration = duration)
-
-                if self.dbw_status:
-                    self.publish(self.throttle,self.brake,self.steering)
-
-                rate.sleep()
-                '''
 
     def publish(self, throttle, brake, steer):
         tcmd = ThrottleCmd()
