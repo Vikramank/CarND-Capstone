@@ -64,7 +64,7 @@ class DBWNode(object):
         self.brake_pub = rospy.Publisher('/vehicle/brake_cmd',
                                          BrakeCmd, queue_size=1)
 
-        self.sampling_rate = 20.0
+        self.sampling_rate = 50.0
         # TODO: Create `TwistController` object
         #self.controller = Controller(sampling_rate = self.sampling_rate, Car_Param = cp)
         self.controller = Controller(Car_Param = cp)
