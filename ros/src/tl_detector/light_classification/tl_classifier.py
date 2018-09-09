@@ -1,9 +1,61 @@
 from styx_msgs.msg import TrafficLight
+import numpy as np
+import os
+import sys
+import tensorflow as tf
+from PIL import Image
+import rospy
 
 class TLClassifier(object):
     def __init__(self):
         #TODO load classifier
-        pass
+
+        dir_path = os.path.dirname(os.path.realpath(__file__))
+        PATH_TO_CKPT = dir_path + '/model/frozen_inference_graph.pb'
+        self.TrafficLight=TrafficLight.UNKNOWN
+        self.category_index={1: {'id': 1, 'name': 'Green'},
+                        2: {'id': 2, 'name': 'Red'},
+                        3: {'id': 3, 'name': 'Yellow'}}
+
+
+
+        self.detection_graph = tf.Graph()
+        with self.detection_graph.as_default():
+          od_graph_def = tf.GraphDef()
+          #sess=tf.Session(graph=self.detection_graph)
+          with tf.gfile.GFile(PATH_TO_CKPT, 'rb') as fid:
+            serialized_graph = fid.read()
+            od_graph_def.ParseFromString(serialized_graph)
+            tf.import_graph_def(od_graph_def, name='')
+          self.sess=tf.Session(graph=self.detection_graph)
+
+        self.image_tensor = self.detection_graph.get_tensor_by_name('image_tensor:0')
+        self.detection_boxes = self.detection_graph.get_tensor_by_name('detection_boxes:0')
+        self.detection_scores = self.detection_graph.get_tensor_by_name('detection_scores:0')
+        self.detection_classes = self.detection_graph.get_tensor_by_name('detection_classes:0')
+        self.num_detections = self.detection_graph.get_tensor_by_name('num_detections:0')
+
+
+    def load_image_into_numpy_array(image):
+      (im_width, im_height) = image.size
+      return np.array(image.getdata()).reshape((im_height, im_width, 3)).astype(np.uint8)
+
+
+
+    def class_name_func(self,image_np,boxes, classes,scores,category_index):
+        max_boxes_to_draw=20
+        min_score_thresh=0.5
+        class_name='Green'
+        if not max_boxes_to_draw:
+             max_boxes_to_draw = boxes.shape[0]
+        for i in range(min(max_boxes_to_draw, boxes.shape[0])):
+              if scores[i] > min_score_thresh:
+                box = tuple(boxes[i].tolist())
+                if classes[i] in category_index.keys():
+                    class_name = category_index[classes[i]]['name']
+        return class_name
+
+
 
     def get_classification(self, image):
         """Determines the color of the traffic light in the image
@@ -15,5 +67,49 @@ class TLClassifier(object):
             int: ID of traffic light color (specified in styx_msgs/TrafficLight)
 
         """
+        #print('TL classify function is called')
+        rospy.logwarn('Calling TL classify')
+        with self.detection_graph.as_default():
+            #currently the image is read by feeding the path of the image directory
+            #image_np = load_image_into_numpy_array(image)
+            image_np = np.asarray(image)
+            image_np_expanded = np.expand_dims(image_np, axis=0)
+
+            (boxes, scores, classes, num) = self.sess.run(
+                                   [self.detection_boxes, self.detection_scores, self.detection_classes, self.num_detections],
+                                   feed_dict={self.image_tensor: image_np_expanded})
+
+            class_name=self.class_name_func(image_np,
+                                np.squeeze(boxes),
+                                np.squeeze(classes).astype(np.int32),
+                                np.squeeze(scores),
+                                self.category_index)
+            '''
+            class_ID=4
+            if class_name=='Green':
+                class_ID=2
+            elif class_name=='Red':
+                class_ID=0
+            elif class_name=='Yellow':
+                class_ID=1
+            '''
+
+        if class_name == 'Green':
+                  self.TrafficLight= TrafficLight.GREEN
+        elif class_name == 'Red':
+                  self.TrafficLight= TrafficLight.RED
+                  print('Red Light detected!')
+        elif class_name == 'Yellow':
+                  self.TrafficLight= TrafficLight.YELLOW
+        else:
+                 self.TrafficLight=TrafficLight.UNKNOWN
+
+        #return self.TrafficLight
+        return 0
         #TODO implement light color prediction
-        return TrafficLight.UNKNOWN
+        #return TrafficLight.UNKNOWN
+if __name__ == '__main__':
+    try:
+        TLClassifier()
+    except rospy.ROSInterruptException:
+        rospy.logerr('Could not start traffic node.')
