@@ -8,8 +8,9 @@ from std_msgs.msg import Int32
 import math
 import numpy as np
 
-
+MAX_DECEL=0.5
 LOOKAHEAD_WPS = 200 # Number of waypoints we will publish. You can change this number
+
 class WaypointUpdater(object):
     def __init__(self):
         rospy.init_node('waypoint_updater')
@@ -49,6 +50,7 @@ class WaypointUpdater(object):
     def traffic_cb(self, msg):
         # TODO: Callback for /traffic_waypoint message. Implement
         self.stopline_wp_idx = msg.data
+        print self.stopline_wp_idx
 
     def obstacle_cb(self, msg):
         # TODO: Callback for /obstacle_waypoint message. We will implement it later
@@ -79,12 +81,14 @@ class WaypointUpdater(object):
         closest_idx = self.get_closest_waypoint_index()
         farthest_idx = closest_idx + LOOKAHEAD_WPS
         base_waypoints = self.base_lane.waypoints[closest_idx:farthest_idx]
+        print (self.stopline_wp_idx)
 
         if self.stopline_wp_idx == -1 or (self.stopline_wp_idx >= farthest_idx):
             lane.waypoints = base_waypoints
         else:
+            rospy.logwarn('Decelerating the car')
             lane.waypoints = self.decelerate_waypoints(base_waypoints, closest_idx)
-
+            
         return lane
 
     def decelerate_waypoints(self, waypoints, closest_idx):
@@ -92,13 +96,12 @@ class WaypointUpdater(object):
         for i, wp in enumerate(waypoints):
             p = Waypoint()
             p.pose = wp.pose
-
+            rospy.logwarn('Decelerating the car')
             stop_idx = max(self.stopline_wp_idx - closest_idx - 2, 0) # Two waypoints back from line so front of car stops at line
             dist = self.distance(waypoints, i, stop_idx)
             vel = math.sqrt(2 * MAX_DECEL * dist)
             if vel < 1. :
                 vel = 0.
-
             p.twist.twist.linear.x = min(vel, wp.twist.twist.linear.x)
             temp.append(p)
 
