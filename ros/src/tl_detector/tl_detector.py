@@ -152,17 +152,15 @@ class TLDetector(object):
             light (TrafficLight): light to classify
         Returns:
             int: ID of traffic light color (specified in styx_msgs/TrafficLight)
-        
+        """
+
         if(not self.has_image):
-            self.prev_light_loc = None
             return False
-        """    
+        # convert msg into appropriate image data
         cv_image = self.bridge.imgmsg_to_cv2(self.camera_image, "bgr8")
 
         #Get classification
         return self.light_classifier.get_classification(cv_image)
-        #return light.state
-        #return TrafficLight.RED 
 
     def process_traffic_lights(self):
         """Finds closest visible traffic light, if one exists, and determines its
@@ -175,14 +173,10 @@ class TLDetector(object):
         light_wp=-1
         closest_wp=-1
         state=TrafficLight.UNKNOWN
-
-        # List of positions that correspond to the line to stop in front of for a given intersection
-        #stop_line_positions = self.config['stop_line_positions']
-        min_dist=np.finfo(np.float32).max
+        min_dist=np.finfo(np.float32).max # maximum possible distance
         if(self.pose):
-            #car_position = self.get_closest_waypoint(self.pose.pose)
-            car_position_index = self.get_closest_waypoint(self.pose)
-            #TODO find the closest visible traffic light (if one exists)
+            car_position_index = self.get_closest_waypoint(self.pose) # Waypoint closest to car's current position
+            # Closest traffic light position
             for i,stop_position in enumerate(self.stop_line_positions):
                 stop_pose=self.stop_loc(stop_position[0], stop_position[1])
                 stop_pos_index=self.get_closest_waypoint(stop_pose)
@@ -195,21 +189,18 @@ class TLDetector(object):
                 if (min_dist> dist):
                     min_dist=dist
                 if (dist< self.threshold_distance) and (stop_pos_index>car_position_index):
-                    light_present=True
+                    light_present=True #a traffic light is present
                     min_dist=dist
                     closest_wp=stop_pos_index
 
-        if light_present:
-                #state = self.get_light_state(light)
-                state = self.get_light_state()
-                light_wp = closest_wp
-                rospy.logwarn("Traffic light id: {}, and its color state: {}".format(closest_wp, state))
-        else:
+        if light_present: #if a traffic light is present
+                state = self.get_light_state() #get the state of the traffic light
+                light_wp = closest_wp #update the waypoint where the car should stop
+                rospy.logwarn("Trafficlight with id: {}, and color: {} detected ".format(closest_wp, state))
+        else: # if no traffic light is present
                 state = TrafficLight.UNKNOWN
                 light_wp = -1
         return light_wp, state
-        #self.waypoints = None
-        #return -1, TrafficLight.UNKNOWN
 
 if __name__ == '__main__':
     try:
